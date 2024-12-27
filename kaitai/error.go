@@ -62,7 +62,8 @@ type ValidationNotEqualError struct {
 }
 
 // NewValidationNotEqualError creates a new ValidationNotEqualError instance.
-func NewValidationNotEqualError(expected interface{}, actual interface{}, io *Stream, srcPath string) ValidationNotEqualError {
+func NewValidationNotEqualError(
+	expected interface{}, actual interface{}, io *Stream, srcPath string) ValidationNotEqualError {
 	return ValidationNotEqualError{
 		expected,
 		actual,
@@ -93,7 +94,8 @@ type ValidationLessThanError struct {
 }
 
 // NewValidationLessThanError creates a new ValidationLessThanError instance.
-func NewValidationLessThanError(min interface{}, actual interface{}, io *Stream, srcPath string) ValidationLessThanError {
+func NewValidationLessThanError(
+	min interface{}, actual interface{}, io *Stream, srcPath string) ValidationLessThanError {
 	return ValidationLessThanError{
 		min,
 		actual,
@@ -124,7 +126,8 @@ type ValidationGreaterThanError struct {
 }
 
 // NewValidationGreaterThanError creates a new ValidationGreaterThanError instance.
-func NewValidationGreaterThanError(max interface{}, actual interface{}, io *Stream, srcPath string) ValidationGreaterThanError {
+func NewValidationGreaterThanError(
+	max interface{}, actual interface{}, io *Stream, srcPath string) ValidationGreaterThanError {
 	return ValidationGreaterThanError{
 		max,
 		actual,
@@ -168,6 +171,32 @@ func (e ValidationNotAnyOfError) Error() string {
 	return e.msgWithLocation(
 		validationFailedMsg(
 			fmt.Sprintf("not any of the list, got %v", e.actual),
+		),
+	)
+}
+
+// ValidationNotInEnumError signals validation failure: we required "Actual" value
+// to be in the enum, but it turned out that it's not.
+type ValidationNotInEnumError struct {
+	actual interface{}
+	locationInfo
+}
+
+// NewValidationNotInEnumError creates a new ValidationNotInEnumError instance.
+func NewValidationNotInEnumError(actual interface{}, io *Stream, srcPath string) ValidationNotInEnumError {
+	return ValidationNotInEnumError{
+		actual,
+		newLocationInfo(io, srcPath),
+	}
+}
+
+// Actual is a getter of the actual value associated with the validation error.
+func (e ValidationNotInEnumError) Actual() interface{} { return e.actual }
+
+func (e ValidationNotInEnumError) Error() string {
+	return e.msgWithLocation(
+		validationFailedMsg(
+			fmt.Sprintf("not in the enum, got %v", e.actual),
 		),
 	)
 }

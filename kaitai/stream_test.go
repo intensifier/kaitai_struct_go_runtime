@@ -128,7 +128,7 @@ func TestStream_ReadU2be(t *testing.T) {
 		wantV   uint16
 		wantErr bool
 	}{
-		{"Read", NewStream(bytes.NewReader([]byte{1})), 256, false},
+		{"Read", NewStream(bytes.NewReader([]byte{1, 0})), 256, false},
 		{"empty Read", NewStream(bytes.NewReader([]byte(""))), 0, true},
 	}
 	for _, tt := range tests {
@@ -650,78 +650,61 @@ func TestStream_ReadBytesTerm(t *testing.T) {
 	}
 }
 
-func TestStream_ReadStrEOS(t *testing.T) {
-	type args struct {
-		encoding string
-	}
-	tests := []struct {
-		name    string
-		k       *Stream
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{"ReadStrEOS", NewStream(bytes.NewReader([]byte("fooo"))), args{""}, "fooo", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.k.ReadStrEOS(tt.args.encoding)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Stream.ReadStrEOS() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("Stream.ReadStrEOS() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestStream_ReadStrByteLimit(t *testing.T) {
-	type args struct {
-		limit    int
-		encoding string
-	}
-	tests := []struct {
-		name    string
-		k       *Stream
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{"ReadStrByteLimit", NewStream(bytes.NewReader([]byte("fooo"))), args{2, ""}, "fo", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.k.ReadStrByteLimit(tt.args.limit, tt.args.encoding)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Stream.ReadStrByteLimit() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("Stream.ReadStrByteLimit() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestStream_AlignToByte(t *testing.T) {
+	type bitInt struct {
+		bits           int
+		want           uint64
+		isLittleEndian bool
+	}
 	tests := []struct {
-		name string
-		k    *Stream
+		name   string
+		k      *Stream
+		fields [2]bitInt // AlignToByte will be called between fields[0] and fields[1]
 	}{
-		{"AlignToByte", NewStream(bytes.NewReader([]byte{0xFF}))},
+		{"ReadBitsIntBe", NewStream(bytes.NewReader([]byte{0b111100_11, 0b0101_0000})), [2]bitInt{
+			{6, 0b111100, false},
+			// should skip 2 bits (0b11)
+			{4, 0b0101, false},
+		}},
+		{"ReadBitsIntLe", NewStream(bytes.NewReader([]byte{0b11_001111, 0b0000_1010})), [2]bitInt{
+			{6, 0b001111, true},
+			// should skip 2 bits (0b11)
+			{4, 0b1010, true},
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.k.AlignToByte()
+			for i, v := range tt.fields {
+				if i == 1 {
+					tt.k.AlignToByte()
+				}
+				var gotVal uint64
+				var err error
+				var methodName string
+				if v.isLittleEndian {
+					methodName = /**/ "ReadBitsIntLe"
+					gotVal, err = tt.k.ReadBitsIntLe(v.bits)
+				} else {
+					methodName = /**/ "ReadBitsIntBe"
+					gotVal, err = tt.k.ReadBitsIntBe(v.bits)
+				}
+				if err != nil {
+					t.Errorf("fields[%v]: Stream.%s(%v) error = %#v", i, methodName, v.bits, err)
+					return
+				}
+				if gotVal != v.want {
+					t.Errorf(
+						"fields[%v]: Stream.%s(%v) = 0b%0*b, want 0b%0*b", i, methodName, v.bits,
+						v.bits, gotVal, v.bits, v.want)
+				}
+			}
 		})
 	}
 }
 
-func TestStream_ReadBitsIntBe(t *testing.T) {
+func TestStream_ReadBitsInt(t *testing.T) {
 	type args struct {
-		totalBitsNeeded uint8
+		totalBitsNeeded int
 	}
 	tests := []struct {
 		name    string
@@ -733,66 +716,33 @@ func TestStream_ReadBitsIntBe(t *testing.T) {
 		{"ReadBitsIntBe", NewStream(bytes.NewReader([]byte{0xF0})), args{5}, 0x1E, false},
 		{"ReadBitsIntBe", NewStream(bytes.NewReader([]byte{0x12, 0x34, 0x56, 0xFF})), args{24}, 0x123456, false},
 		{"ReadBitsIntBe", NewStream(bytes.NewReader([]byte{0xAB, 0xC7})), args{12}, 0xABC, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotVal, err := tt.k.ReadBitsIntBe(tt.args.totalBitsNeeded)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Stream.ReadBitsIntBe() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if gotVal != tt.wantVal {
-				t.Errorf("Stream.ReadBitsIntBe() = %v, want %v", gotVal, tt.wantVal)
-			}
-		})
-	}
-}
-
-func TestStream_ReadBitsArray(t *testing.T) {
-	type args struct {
-		n uint
-	}
-	tests := []struct {
-		name    string
-		k       *Stream
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.k.ReadBitsArray(tt.args.n); (err != nil) != tt.wantErr {
-				t.Errorf("Stream.ReadBitsArray() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestStream_ReadBitsIntLe(t *testing.T) {
-	type args struct {
-		n uint8
-	}
-	tests := []struct {
-		name    string
-		k       *Stream
-		args    args
-		wantRes uint64
-		wantErr bool
-	}{
+		{"ReadBitsIntBe", NewStream(bytes.NewReader([]byte{1, 2})), args{17}, 0, true},
 		{"ReadBitsIntLe", NewStream(bytes.NewReader([]byte{0xF0})), args{5}, 16, false},
 		{"ReadBitsIntLe", NewStream(bytes.NewReader([]byte{0x56, 0x34, 0x12, 0xFF})), args{24}, 0x123456, false},
 		{"ReadBitsIntLe", NewStream(bytes.NewReader([]byte{0xBC, 0x7A})), args{12}, 0xABC, false},
+		{"ReadBitsIntLe", NewStream(bytes.NewReader([]byte{1, 2})), args{17}, 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotRes, err := tt.k.ReadBitsIntLe(tt.args.n)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Stream.ReadBitsIntLe() error = %v, wantErr %v", err, tt.wantErr)
+			var gotVal uint64
+			var err error
+
+			switch tt.name {
+			case "ReadBitsIntBe":
+				gotVal, err = tt.k.ReadBitsIntBe(tt.args.totalBitsNeeded)
+			case "ReadBitsIntLe":
+				gotVal, err = tt.k.ReadBitsIntLe(tt.args.totalBitsNeeded)
+			default:
+				t.Errorf("Unknown test method: %v", tt.name)
 				return
 			}
-			if gotRes != tt.wantRes {
-				t.Errorf("Stream.ReadBitsIntLe() = %v, want %v", gotRes, tt.wantRes)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Stream.%s() error = %v, wantErr %v", tt.name, err, tt.wantErr)
+				return
+			}
+			if gotVal != tt.wantVal {
+				t.Errorf("Stream.%s() = %v, want %v", tt.name, gotVal, tt.wantVal)
 			}
 		})
 	}

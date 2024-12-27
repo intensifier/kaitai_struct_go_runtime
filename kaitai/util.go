@@ -3,6 +3,7 @@ package kaitai
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
 	"io/ioutil"
 	"math/bits"
 
@@ -43,19 +44,23 @@ func ProcessZlib(in []byte) ([]byte, error) {
 	// we could reuse it by using a sync.Pool if this is called in a tight loop.
 	r, err := zlib.NewReader(b)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ProcessZlib: error initializing zlib reader: %w", err)
 	}
 
-	return ioutil.ReadAll(r)
+	res, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("ProcessZlib: error reading zlib data: %w", err)
+	}
+	return res, nil
 }
 
 // BytesToStr returns a string decoded by the given decoder.
 func BytesToStr(in []byte, decoder *encoding.Decoder) (string, error) {
 	i := bytes.NewReader(in)
 	o := transform.NewReader(i, decoder)
-	d, e := ioutil.ReadAll(o)
-	if e != nil {
-		return "", e
+	d, err := ioutil.ReadAll(o)
+	if err != nil {
+		return "", fmt.Errorf("BytesToStr: error decoding bytes with %T: %w", decoder.Transformer, err)
 	}
 	return string(d), nil
 }
@@ -72,14 +77,39 @@ func StringReverse(s string) string {
 // BytesTerminate terminates the given byte slice using the provided sentinel,
 // optionally including the sentinel itself in the terminated byte slice.
 func BytesTerminate(s []byte, term byte, includeTerm bool) []byte {
-	n, srcLen := 0, len(s)
-	for n < srcLen && s[n] != term {
-		n++
+	termIndex := bytes.IndexByte(s, term)
+	if termIndex == -1 {
+		return s
 	}
-	if includeTerm && n < srcLen {
-		n++
+	newLen := termIndex
+	if includeTerm {
+		newLen++
 	}
-	return s[:n]
+	return s[:newLen]
+}
+
+// BytesTerminateMulti terminates the given byte slice using the provided byte
+// sequence term, whose first byte must appear at a position that is a multiple
+// of len(term). Occurrences at any other positions are ignored. If includeTerm
+// is true, term will be included in the returned byte slice.
+func BytesTerminateMulti(s, term []byte, includeTerm bool) []byte {
+	unitSize := len(term)
+	rest := s
+	for {
+		searchIndex := bytes.Index(rest, term)
+		if searchIndex == -1 {
+			return s
+		}
+		mod := searchIndex % unitSize
+		if mod == 0 {
+			newLen := (len(s) - len(rest)) + searchIndex
+			if includeTerm {
+				newLen += unitSize
+			}
+			return s[:newLen]
+		}
+		rest = rest[searchIndex+(unitSize-mod):]
+	}
 }
 
 // BytesStripRight strips bytes of a given value off the end of the byte slice.
